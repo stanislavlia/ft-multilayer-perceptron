@@ -2,6 +2,8 @@ from autograd import Value
 from typing import List, Optional
 import random
 from enum import Enum
+from optimizers import StochasticGradientDescent
+
 
 class WeightInitializationOption(Enum):
     ZEROS = "zeros"
@@ -110,45 +112,78 @@ class Layer():
 
 
 
+
+# Now implement a 2-layer network with softmax output to classify 3 classes
+
 if __name__ == "__main__":
+    random.seed(42)
+    # 1) Generate synthetic 2D data for 3 classes
+    xs: List[List[float]] = []
+    ys: List[int] = []
+    num_per_class = 60
+    for cls in range(3):
+        # center for each class
+        center_x = [0.0, 3.0, -3.0][cls]
+        center_y = [0.0, 3.0, 3.0][cls]
+        for _ in range(num_per_class):
+            x1 = random.gauss(center_x, 1.0)
+            x2 = random.gauss(center_y, 1.0)
+            xs.append([x1, x2])
+            ys.append(cls)
 
-    print(Layer._softmax([Value(0.1), Value(2), Value(3), Value(2.5), Value(0.0)]))
+    # 2) Build network: 2 inputs → 5 hidden (tanh) → 3 outputs (softmax)
+    hidden = Layer(
+        n_input=2,
+        n_output=5,
+        activation=Activation.RELU,
+        initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
+    )
+    output_layer = Layer(
+        n_input=5,
+        n_output=3,
+        activation=Activation.SOFTMAX,
+        initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
+    )
 
-    # xs = [i for i in range(30)]
-    # ys = [2 * x + 1 for x in xs]
+    # Collect parameters and setup optimizer
+    params = hidden.parameters() + output_layer.parameters()
+    optimizer = StochasticGradientDescent(parameters=params, lr=0.005)
 
-    # # 2. Build a single‐neuron model with linear activation
-    # init = WeightInitializer(option=WeightInitializationOption.NORMAL)
-    # model = Neuron(input_size=1, activation=Activation.RELU, initializer=init)
+    # 3) Training loop
+    epochs = 200
+    for epoch in range(epochs):
+        total_loss = Value(0.0)
+        optimizer.zero_grad()
 
-    # # 3. Training hyperparameters
-    # lr = 0.00001
-    # epochs = 5000
+        # forward + loss aggregation
+        for x_raw, y_true in zip(xs, ys):
+            # wrap inputs
+            x_vals = [Value(x_raw[0]), Value(x_raw[1])]
+            # forward pass
+            h = hidden(x_vals)                # List[Value] of length 5
+            preds = output_layer(h)          # List[Value] of length 3 (softmax)
 
-    # for epoch in range(epochs):
-    #     total_loss = Value(0.0)
-        
-    #     # zero gradients on parameters
-    #     for p in model.parameters():
-    #         p.grad = 0.0
+            # one-hot encode true label
+            true_vec = [1.0 if i == y_true else 0.0 for i in range(3)]
+            # MSE loss between preds and true one-hot
+            sample_loss = sum((p - tv) ** 2 for p, tv in zip(preds, true_vec))
+            total_loss = total_loss + sample_loss
 
-    #     # sum squared error over data
-    #     for x, y_true in zip(xs, ys):
-    #         x_val = Value(x)
-    #         y_pred = model([x_val])                 # forward
-    #         loss = (y_pred - y_true) ** 2           # MSE for one point
-    #         total_loss = total_loss + loss          # accumulate
+        # backward and update
+        total_loss.backward()
+        optimizer.step()
 
-    #     # backprop
-    #     total_loss.backward()
+        # print loss every 10 epochs
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            print(f"Epoch {epoch:3d} | Loss = {total_loss.val:.4f}")
 
-    #     # update parameters
-    #     for p in model.params:
-    #         p.val -= lr * p.grad
-
-    #     if epoch % 10 == 0 or epoch == epochs - 1:
-    #         print(f"Epoch {epoch:2d} | Loss = {total_loss.val:.4f}")
-
-    # # 4. Inspect learned parameters
-    # w, b = model.weights[0], model.bias
-    # print(f"\nLearned line:  y = {w.val:.3f} x + {b.val:.3f}")
+    # 4) Evaluate accuracy on training set
+    correct = 0
+    for x_raw, y_true in zip(xs, ys):
+        x_vals = [Value(x_raw[0]), Value(x_raw[1])]
+        preds = output_layer(hidden(x_vals))
+        pred_label = max(range(len(preds)), key=lambda i: preds[i].val)
+        if pred_label == y_true:
+            correct += 1
+    accuracy = correct / len(xs)
+    print(f"Training accuracy: {accuracy:.2f}")
