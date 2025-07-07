@@ -73,6 +73,8 @@ class Value:
     
     
     def tanh(self):
+        """Activation function: TanH"""
+
         val = (math.exp(2 * self.val) - 1) / (math.exp(2 * self.val) + 1)
         
         out = Value(val, _parents=(self, ), _op='tanh')
@@ -85,6 +87,8 @@ class Value:
         return out
     
     def relu(self):
+        """Activation function: RELU"""
+
         val = max(self.val, 0)
         out = Value(val, _parents=(self,) , _op='relu')
 
@@ -96,6 +100,8 @@ class Value:
         return out
     
     def sigmoid(self):
+        """Activation function: Sigmoid"""
+
         val = 1 / ( 1 + math.exp(-self.val))
         out = Value(val, _parents = (self, ), _op="sigmoid")
 
@@ -157,3 +163,27 @@ class Value:
             
     def __repr__(self):
         return f"Value(val={self.val}, label={self._label})"
+
+
+def test_autograd():
+    x = Value(2)
+    y = Value(0.7)
+
+    print("=========TEST AUTOGRADIENT======")
+
+    #Compute your function step by  step
+    print(x)
+    print(y)
+    step1 = (x - 0.2) ** 3
+    step2 = y.exp() ** -2
+    step3 = step1 + step2 + x*y
+
+
+    #run backpropogation on last step
+    step3.backward()
+
+    print(f"gradient of x wrt to F is {x.grad}")  #dF/dx =  10.42
+    print(f"gradient of y wrt to F is {y.grad}")  #dF/dy = 1.506
+
+if __name__ == "__main__":
+    test_autograd()
