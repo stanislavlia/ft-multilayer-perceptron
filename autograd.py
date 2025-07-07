@@ -139,7 +139,21 @@ class Value:
         out._backward = _backward
         return out
     
-    
+    def log(self, base=None):
+
+        result = math.log(self.val) if not base else math.log(self.val, base=base)
+        out = Value(result, _parents=(self,), _op="log")
+
+        def _backward():
+            if not base:
+                self.grad +=  (1 / self.val) * out.grad #multiply to preserve chain rule
+            else:
+                self.grad += (1 / (self.val * math.log(base))) * out.grad
+
+        out._backward = _backward
+        return out
+
+
     def backward(self):
         
         self.grad = 1
