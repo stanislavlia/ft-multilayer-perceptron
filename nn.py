@@ -1,9 +1,10 @@
 from autograd import Value
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import random
 from enum import Enum
-from optimizers import StochasticGradientDescent
-
+from optimizers import StochasticGradientDescent, Optimizer
+from metrics import binary_crossentropy_loss
+from loguru import logger
 
 class WeightInitializationOption(Enum):
     ZEROS = "zeros"
@@ -107,83 +108,274 @@ class Layer():
             params.extend(neuron.parameters())
             
         return params
+    
+
+class FeedForwardNN():
+    def __init__(self, layers: List[Layer]):
+
+        self.layers = layers
+        self._validate_layers(layers)
+
+        self.optimizer = None
+        self.loss_func = None
+        self.metric = None
+
+        self.batch_size = None
+        self.epochs = None
+
+        self.X_train = None
+        self.y_train = None
+        self.X_val = None
+        self.y_val = None
+
+        self.train_loss_history = []
+        self.val_loss_history = []
+        self.train_metric_history = []
+        self.val_metric_history = []
+
+
+    
+    @staticmethod
+    def _validate_layers(layers: List["Layer"]):
+        # Ensure layers list is non-empty and all are Layer instances
+        if not isinstance(layers, list) or len(layers) == 0:
+            raise ValueError("`layers` must be a non-empty list of Layer instances")
+        for idx, layer in enumerate(layers):
+            if not isinstance(layer, Layer):
+                raise TypeError(f"Element at index {idx} is not a Layer: {type(layer)}")
+
+        # Ensure output size of each layer matches input size of next
+        for i in range(len(layers) - 1):
+            out_size = layers[i].n_output
+            next_in = layers[i+1].n_input
+            if out_size != next_in:
+                raise ValueError(
+                    f"Layer {i} output size ({out_size}) does not match "
+                    f"Layer {i+1} input size ({next_in})"
+                )
+    
+    def _validate_data(self,
+                       X_train: List[List[float]],
+                       y_train: List[float],
+                       X_val: Optional[List[List[float]]] = None,
+                       y_val: Optional[List[float]] = None):
+        
+        # 1) Basic type & length checks
+        if not isinstance(X_train, list) or not all(isinstance(x, list) for x in X_train):
+            raise ValueError("X_train must be a list of feature lists")
+        if not isinstance(y_train, list):
+            raise ValueError("y_train must be a list")
+        if len(X_train) != len(y_train):
+            raise ValueError(f"Train samples ({len(X_train)}) != train labels ({len(y_train)})")
+
+        # 2) All train rows have same length
+        feat_len = len(X_train[0])
+        for i, x in enumerate(X_train):
+            if len(x) != feat_len:
+                raise ValueError(f"All rows in X_train must have same length; "
+                                 f"row 0 is {feat_len} but row {i} is {len(x)}")
+
+        # 3) If validation provided, repeat checks
+        if X_val is not None or y_val is not None:
+            if X_val is None or y_val is None:
+                raise ValueError("If you pass X_val you must also pass y_val (and vice versa)")
+            if not isinstance(X_val, list) or not all(isinstance(x, list) for x in X_val):
+                raise ValueError("X_val must be a list of feature lists")
+            if not isinstance(y_val, list):
+                raise ValueError("y_val must be a list")
+            if len(X_val) != len(y_val):
+                raise ValueError(f"Val samples ({len(X_val)}) != val labels ({len(y_val)})")
+            for i, x in enumerate(X_val):
+                if len(x) != feat_len:
+                    raise ValueError(f"All rows in X_val must have same length as X_train; "
+                                     f"row {i} is {len(x)} but should be {feat_len}")
+
+        # 4) Finally, check that feat_len matches your network’s first layer
+        #    (you can only do this if layers have been set up already)
+        expected = self.layers[0].n_input
+        if feat_len != expected:
+            raise ValueError(f"Each input sample must have {expected} features, "
+                             f"but data has {feat_len}")
+    def _generate_batches(
+        self,
+        X: List[List[float]],
+        y: List[float]
+    ):
+        """
+        Yield successive batches from X and y.
+        Shuffles indices before batching.
+        """
+        n_samples = len(X)
+        indices = list(range(n_samples))
+        random.shuffle(indices)
+        for start in range(0, n_samples, self.batch_size):
+            batch_idx = indices[start:start + self.batch_size]
+            batch_X = [X[i] for i in batch_idx]
+            batch_y = [y[i] for i in batch_idx]
+            yield batch_X, batch_y
+
+    def forward(self, x : List[float]) -> Value:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+    
+    def forward_batch(self, x: List[List[float]]) -> List[Value]:
+
+        y_pred_batch = [self.forward(xi) for xi in x]
+        return y_pred_batch
+
+
+    def __call__(self, x) -> List[float]:
+        return self.forward_batch(x)
+
+    def validation_eval(self, X_val, y_val) -> Tuple:
+
+        return Value(0.0), 0.0 #loss and metric, hardcoded for now
+
+    def fit(
+        self,
+        X_train: List[List[float]],
+        y_train: List[float],
+        optimizer: Optimizer,
+        loss,
+        epochs: int,
+        batch_size: int = 16,
+        metric: str = "accuracy",
+        X_val: List[List[float]] = None,
+        y_val: List[float] = None
+    ):
+        # Store hyperparams & data
+        self.optimizer = optimizer
+        self.loss_func  = loss
+        self.epochs     = epochs
+        self.batch_size = batch_size
+        self.metric     = metric
+        self.X_train, self.y_train = X_train, y_train
+        self.X_val,   self.y_val   = X_val,   y_val
+
+        self._validate_data(X_train, y_train, X_val, y_val)
+
+        for epoch in range(1, epochs + 1):
+            epoch_loss = 0.0
+
+            for X_batch, y_batch in self._generate_batches(X_train, y_train):
+                self.optimizer.zero_grad()
+
+                batch_out = self.forward_batch(X_batch)
+                flat_preds = [out[0] for out in batch_out]
+
+                # compute loss, backprop, step
+                batch_loss = loss(flat_preds, y_batch)
+                batch_loss.backward()
+                self.optimizer.step()
+
+                epoch_loss += batch_loss.val
+
+            # average train loss over batches
+            num_batches = len(X_train) / batch_size
+            avg_train_loss = epoch_loss / num_batches
+
+            # validation (if provided)
+            if X_val is not None and y_val is not None:
+                val_loss, val_acc = self.validation_eval(X_val, y_val)
+            else:
+                val_loss, val_acc = Value(0.0), 0.0
+
+            logger.info(
+                f"Epoch {epoch}/{epochs}  "
+                f"train_loss={avg_train_loss:.4f}  "
+                f"val_loss={val_loss.val:.4f}  "
+                f"val_acc={val_acc:.4f}"
+            )
+            self.train_loss_history.append(avg_train_loss)
+            self.val_loss_history.append(val_loss.val)
+            self.train_metric_history.append(0.0)
+            self.val_metric_history.append(val_acc)
 
 
 
+
+            
+
+
+
+        
 
 
 
 # Now implement a 2-layer network with softmax output to classify 3 classes
 
 if __name__ == "__main__":
-    random.seed(42)
-    # 1) Generate synthetic 2D data for 3 classes
+    random.seed(0)
+    # 1) Generate synthetic 2D data for binary classes (0 vs 1)
     xs: List[List[float]] = []
     ys: List[int] = []
-    num_per_class = 60
-    for cls in range(3):
-        # center for each class
-        center_x = [0.0, 3.0, -3.0][cls]
-        center_y = [0.0, 3.0, 3.0][cls]
-        for _ in range(num_per_class):
-            x1 = random.gauss(center_x, 1.0)
-            x2 = random.gauss(center_y, 1.0)
-            xs.append([x1, x2])
-            ys.append(cls)
+    num_samples = 100
+    for _ in range(num_samples):
+        # class 0: centered at (-2, -2)
+        xs.append([random.gauss(-1.0, 1.0), random.gauss(-2, 1.0)])
+        ys.append(0)
+        # class 1: centered at (2, 2)
+        xs.append([random.gauss(2, 1.0), random.gauss(2, 1.0)])
+        ys.append(1)
 
-    # 2) Build network: 2 inputs → 5 hidden (tanh) → 3 outputs (softmax)
+    # 2) Build network: 2 inputs → 4 hidden (tanh) → 1 output (sigmoid)
     hidden = Layer(
         n_input=2,
-        n_output=5,
+        n_output=3,
         activation=Activation.RELU,
         initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
     )
     output_layer = Layer(
-        n_input=5,
-        n_output=3,
-        activation=Activation.SOFTMAX,
+        n_input=3,
+        n_output=1,
+        activation=Activation.SIGMOID,
         initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
     )
 
     # Collect parameters and setup optimizer
     params = hidden.parameters() + output_layer.parameters()
-    optimizer = StochasticGradientDescent(parameters=params, lr=0.005)
+    opt = StochasticGradientDescent(parameters=params, lr=0.02)
 
-    # 3) Training loop
-    epochs = 200
-    for epoch in range(epochs):
-        total_loss = Value(0.0)
-        optimizer.zero_grad()
+    model = FeedForwardNN(layers=[hidden, output_layer])
 
-        # forward + loss aggregation
-        for x_raw, y_true in zip(xs, ys):
-            # wrap inputs
-            x_vals = [Value(x_raw[0]), Value(x_raw[1])]
-            # forward pass
-            h = hidden(x_vals)                # List[Value] of length 5
-            preds = output_layer(h)          # List[Value] of length 3 (softmax)
+    model.fit(X_train=xs,
+              y_train=ys,
+              optimizer=opt,
+              loss=binary_crossentropy_loss,
+              epochs=100,
+              batch_size=8)
 
-            # one-hot encode true label
-            true_vec = [1.0 if i == y_true else 0.0 for i in range(3)]
-            # MSE loss between preds and true one-hot
-            sample_loss = sum((p - tv) ** 2 for p, tv in zip(preds, true_vec))
-            total_loss = total_loss + sample_loss
+    # # 3) Training loop with binary cross-entropy loss over the batch
+    # epochs = 1000
+    # for epoch in range(epochs):
+    #     opt.zero_grad()
 
-        # backward and update
-        total_loss.backward()
-        optimizer.step()
+    #     # Forward pass: collect predictions
+    #     preds: List[Value] = []
+    #     for x_raw in xs:
+    #         x_vals = [Value(x_raw[0]), Value(x_raw[1])]
+    #         h = hidden(x_vals)
+    #         pred = output_layer(h)[0]
+    #         preds.append(pred)
 
-        # print loss every 10 epochs
-        if epoch % 10 == 0 or epoch == epochs - 1:
-            print(f"Epoch {epoch:3d} | Loss = {total_loss.val:.4f}")
+    #     # Compute batch loss (mean over samples)
+    #     loss = binary_crossentropy_loss(preds, ys)
 
-    # 4) Evaluate accuracy on training set
+    #     # Backward and update
+    #     loss.backward()
+    #     opt.step()
+
+    #     if epoch % 10 == 0:
+    #         print(f"Epoch {epoch:3d} | Loss = {loss.val:.4f}")
+
+    # 4) Evaluate accuracy
     correct = 0
     for x_raw, y_true in zip(xs, ys):
         x_vals = [Value(x_raw[0]), Value(x_raw[1])]
-        preds = output_layer(hidden(x_vals))
-        pred_label = max(range(len(preds)), key=lambda i: preds[i].val)
-        if pred_label == y_true:
+        pred_val = output_layer(hidden(x_vals))[0].val
+        label = 1 if pred_val > 0.5 else 0
+        if label == y_true:
             correct += 1
     accuracy = correct / len(xs)
     print(f"Training accuracy: {accuracy:.2f}")

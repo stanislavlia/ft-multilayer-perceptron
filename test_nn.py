@@ -1,0 +1,64 @@
+import random
+from autograd import Value
+from typing import List
+from loguru import logger
+
+from optimizers import StochasticGradientDescent
+from metrics import binary_crossentropy_loss
+from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
+
+if __name__ == "__main__":
+    random.seed(123)
+    # 1) Generate toy binary classification data
+    N = 400
+    X_train: List[List[float]] = []
+    y_train: List[int] = []
+    for _ in range(N):
+        # class 0
+        X_train.append([random.gauss(0, 3), random.gauss(2, 0.3)])
+        y_train.append(0)
+        # class 1
+        X_train.append([random.gauss(2, 1), random.gauss(2, 1)])
+        y_train.append(1)
+
+    # 2) Split into train/val
+    split = int(0.8 * len(X_train))
+    X_val, y_val = X_train[split:], y_train[split:]
+    X_train, y_train = X_train[:split], y_train[:split]
+
+    # 3) Build network: 2 -> 4 -> 1
+    init = WeightInitializer(option=WeightInitializationOption.NORMAL)
+    hidden = Layer(n_input=2, n_output=2, activation=Activation.RELU, initializer=init)
+    output_layer = Layer(n_input=2, n_output=1, activation=Activation.SIGMOID, initializer=init)
+    model = FeedForwardNN(layers=[hidden, output_layer])
+
+    # 4) Setup optimizer and loss
+    params = hidden.parameters() + output_layer.parameters()
+    optimizer = StochasticGradientDescent(parameters=params, lr=0.03)
+    loss_fn = binary_crossentropy_loss
+
+    # 5) Train
+    model.fit(
+        X_train=X_train,
+        y_train=y_train,
+        optimizer=optimizer,
+        loss=loss_fn,
+        epochs=100,
+        batch_size=64,
+        metric="accuracy",
+        X_val=X_val,
+        y_val=y_val
+    )
+
+    # 6) Evaluate on validation set using model.forward()
+    correct = 0
+    for x_raw, y_true in zip(X_val, y_val):
+        # forward takes raw floats, returns List[Value] for this sample
+        preds: List[Value] = model.forward(x_raw)
+        pred_val = preds[0].val         # single-output neuron
+        label = 1 if pred_val > 0.5 else 0
+        if label == y_true:
+            correct += 1
+
+    acc = correct / len(X_val)
+    logger.info(f"Validation accuracy: {acc:.3f}")
