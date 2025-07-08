@@ -10,12 +10,12 @@ from nn import Layer, WeightInitializer, WeightInitializationOption, Activation,
 if __name__ == "__main__":
     random.seed(123)
     # 1) Generate toy binary classification data
-    N = 400
+    N = 1000
     X_train: List[List[float]] = []
     y_train: List[int] = []
     for _ in range(N):
         # class 0
-        X_train.append([random.gauss(0, 3), random.gauss(2, 0.3)])
+        X_train.append([random.gauss(7, 3), random.gauss(1.6, 0.3)])
         y_train.append(0)
         # class 1
         X_train.append([random.gauss(2, 1), random.gauss(2, 1)])
@@ -26,15 +26,18 @@ if __name__ == "__main__":
     X_val, y_val = X_train[split:], y_train[split:]
     X_train, y_train = X_train[:split], y_train[:split]
 
-    # 3) Build network: 2 -> 4 -> 1
+
     init = WeightInitializer(option=WeightInitializationOption.NORMAL)
-    hidden = Layer(n_input=2, n_output=2, activation=Activation.RELU, initializer=init)
-    output_layer = Layer(n_input=2, n_output=1, activation=Activation.SIGMOID, initializer=init)
-    model = FeedForwardNN(layers=[hidden, output_layer])
+
+    model = FeedForwardNN(layers=[
+        Layer(n_input=2, n_output=10, activation=Activation.RELU, initializer=init),
+        Layer(n_input=10, n_output=6, activation=Activation.RELU, initializer=init),
+        Layer(n_input=6, n_output=1, activation=Activation.SIGMOID, initializer=init),
+    ])
 
     # 4) Setup optimizer and loss
-    params = hidden.parameters() + output_layer.parameters()
-    optimizer = StochasticGradientDescent(parameters=params, lr=0.03)
+    params = model.parameters()
+    optimizer = StochasticGradientDescent(parameters=params, lr=0.001)
     loss_fn = binary_crossentropy_loss
 
     # 5) Train
@@ -43,9 +46,9 @@ if __name__ == "__main__":
         y_train=y_train,
         optimizer=optimizer,
         loss=loss_fn,
-        epochs=100,
+        epochs=300,
         batch_size=64,
-        metric="accuracy",
+        metric="f1_score",
         X_val=X_val,
         y_val=y_val
     )

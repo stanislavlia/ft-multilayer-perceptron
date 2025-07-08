@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 import random
 from enum import Enum
 from optimizers import StochasticGradientDescent, Optimizer
-from metrics import binary_crossentropy_loss
+from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
 from loguru import logger
 
 class WeightInitializationOption(Enum):
@@ -134,7 +134,14 @@ class FeedForwardNN():
         self.val_metric_history = []
 
 
-    
+    def parameters(self):
+        
+        params = []
+        for layer in self.layers:
+            params.extend(layer.parameters())
+            
+        return params
+
     @staticmethod
     def _validate_layers(layers: List["Layer"]):
         # Ensure layers list is non-empty and all are Layer instances
@@ -160,7 +167,7 @@ class FeedForwardNN():
                        X_val: Optional[List[List[float]]] = None,
                        y_val: Optional[List[float]] = None):
         
-        # 1) Basic type & length checks
+        # Basic type & length checks
         if not isinstance(X_train, list) or not all(isinstance(x, list) for x in X_train):
             raise ValueError("X_train must be a list of feature lists")
         if not isinstance(y_train, list):
@@ -168,14 +175,14 @@ class FeedForwardNN():
         if len(X_train) != len(y_train):
             raise ValueError(f"Train samples ({len(X_train)}) != train labels ({len(y_train)})")
 
-        # 2) All train rows have same length
+        # All train rows have same length
         feat_len = len(X_train[0])
         for i, x in enumerate(X_train):
             if len(x) != feat_len:
                 raise ValueError(f"All rows in X_train must have same length; "
                                  f"row 0 is {feat_len} but row {i} is {len(x)}")
 
-        # 3) If validation provided, repeat checks
+        #If validation provided, repeat checks
         if X_val is not None or y_val is not None:
             if X_val is None or y_val is None:
                 raise ValueError("If you pass X_val you must also pass y_val (and vice versa)")
@@ -190,8 +197,6 @@ class FeedForwardNN():
                     raise ValueError(f"All rows in X_val must have same length as X_train; "
                                      f"row {i} is {len(x)} but should be {feat_len}")
 
-        # 4) Finally, check that feat_len matches your network’s first layer
-        #    (you can only do this if layers have been set up already)
         expected = self.layers[0].n_input
         if feat_len != expected:
             raise ValueError(f"Each input sample must have {expected} features, "
@@ -224,14 +229,34 @@ class FeedForwardNN():
         y_pred_batch = [self.forward(xi) for xi in x]
         return y_pred_batch
 
+    def _metric(self, y_pred, y_true) -> float:
+        
+        if self.metric == "accuracy":
+            return accuracy_score(y_pred, y_true)
+        if self.metric == "f1_score":
+            return f1_score(y_pred, y_true)
+        if self.metric == "r2":
+            return r2_score(y_pred, y_true)
+        if self.metric == "mse":
+            return mean_squared_error_loss(y_pred, y_true)
+        
+        supported = ["accuracy", "f1_score", "r2", "mse"]
+        raise NotImplementedError(
+            f"Metric '{self.metric}' is not supported. Use one of {supported}."
+        )
+
 
     def __call__(self, x) -> List[float]:
         return self.forward_batch(x)
 
     def validation_eval(self, X_val, y_val) -> Tuple:
+        y_pred = self.forward_batch(X_val)
+        flat_preds = [out[0] for out in y_pred]
 
-        return Value(0.0), 0.0 #loss and metric, hardcoded for now
-
+        metric = self._metric(flat_preds, y_val)
+        loss = self.loss_func(flat_preds, y_val)
+        return loss, metric
+    
     def fit(
         self,
         X_train: List[List[float]],
@@ -257,12 +282,17 @@ class FeedForwardNN():
 
         for epoch in range(1, epochs + 1):
             epoch_loss = 0.0
+            y_train_preds = []
+            y_train_true = []
 
             for X_batch, y_batch in self._generate_batches(X_train, y_train):
                 self.optimizer.zero_grad()
 
                 batch_out = self.forward_batch(X_batch)
                 flat_preds = [out[0] for out in batch_out]
+
+                y_train_preds.extend(flat_preds)
+                y_train_true.extend(y_batch)
 
                 # compute loss, backprop, step
                 batch_loss = loss(flat_preds, y_batch)
@@ -275,22 +305,25 @@ class FeedForwardNN():
             num_batches = len(X_train) / batch_size
             avg_train_loss = epoch_loss / num_batches
 
+            train_metric = self._metric(y_train_preds, y_train_true)
+
             # validation (if provided)
             if X_val is not None and y_val is not None:
-                val_loss, val_acc = self.validation_eval(X_val, y_val)
+                val_loss, val_metric = self.validation_eval(X_val, y_val)
             else:
-                val_loss, val_acc = Value(0.0), 0.0
+                val_loss, val_metric = None, None
 
             logger.info(
                 f"Epoch {epoch}/{epochs}  "
                 f"train_loss={avg_train_loss:.4f}  "
+                f"{self.metric}: {train_metric}    "
                 f"val_loss={val_loss.val:.4f}  "
-                f"val_acc={val_acc:.4f}"
+                f"val_{self.metric}={val_metric:.4f}"
             )
             self.train_loss_history.append(avg_train_loss)
             self.val_loss_history.append(val_loss.val)
             self.train_metric_history.append(0.0)
-            self.val_metric_history.append(val_acc)
+            self.val_metric_history.append(val_metric)
 
 
 
