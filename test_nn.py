@@ -3,7 +3,7 @@ from autograd import Value
 from typing import List
 from loguru import logger
 
-from optimizers import StochasticGradientDescent
+from optimizers import StochasticGradientDescent, RMSProp
 from metrics import binary_crossentropy_loss
 from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
 
@@ -30,15 +30,14 @@ if __name__ == "__main__":
     init = WeightInitializer(option=WeightInitializationOption.NORMAL)
 
     model = FeedForwardNN(layers=[
-        Layer(n_input=2, n_output=30, activation=Activation.RELU, initializer=init),
-        Layer(n_input=30, n_output=6, activation=Activation.RELU, initializer=init),
-        Layer(n_input=6, n_output=3, activation=Activation.RELU, initializer=init),
+        Layer(n_input=2, n_output=5, activation=Activation.RELU, initializer=init),
+        Layer(n_input=5, n_output=3, activation=Activation.RELU, initializer=init),
         Layer(n_input=3, n_output=1, activation=Activation.SIGMOID, initializer=init),
     ])
 
     # 4) Setup optimizer and loss
     params = model.parameters()
-    optimizer = StochasticGradientDescent(parameters=params, lr=0.01)
+    optimizer = RMSProp(parameters=params, lr=0.01, beta=0.9) #StochasticGradientDescent(params, lr=0.01) 
     loss_fn = binary_crossentropy_loss
 
     # 5) Train

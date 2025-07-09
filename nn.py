@@ -2,7 +2,7 @@ from autograd import Value
 from typing import List, Optional, Tuple
 import random
 from enum import Enum
-from optimizers import StochasticGradientDescent, Optimizer
+from optimizers import StochasticGradientDescent, Optimizer, RMSProp
 from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
 from loguru import logger
 import json
