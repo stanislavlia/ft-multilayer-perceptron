@@ -5,6 +5,7 @@ from enum import Enum
 from optimizers import StochasticGradientDescent, Optimizer
 from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
 from loguru import logger
+import json
 
 class WeightInitializationOption(Enum):
     ZEROS = "zeros"
@@ -109,6 +110,35 @@ class Layer():
             
         return params
     
+    def state_dict(self) -> dict:
+
+        return {
+            "n_input": self.n_input,
+            "n_output": self.n_output,
+            "activation": self.activation.value,
+            "params": [p.val for p in self.parameters()],
+        }
+    
+    @classmethod
+    def load_state_dict(cls, state: dict) -> "Layer":
+        """
+        Reconstructs a Layer from state_dict output.
+        """
+
+        layer = cls(
+            n_input=state["n_input"],
+            n_output=state["n_output"],
+            activation=Activation(state["activation"]),
+            initializer=WeightInitializer(option=WeightInitializationOption.ZEROS)
+        )
+        saved = state["params"]
+        params = layer.parameters()
+        if len(saved) != len(params):
+            raise ValueError("Layer.load_state_dict: parameter count mismatch")
+        for p_obj, v in zip(params, saved):
+            p_obj.val = v
+        return layer
+    
 
 class FeedForwardNN():
     def __init__(self, layers: List[Layer]):
@@ -201,6 +231,32 @@ class FeedForwardNN():
         if feat_len != expected:
             raise ValueError(f"Each input sample must have {expected} features, "
                              f"but data has {feat_len}")
+    
+    def save_params(self, filepath):
+
+        layers_states = [l.state_dict() for l in self.layers]
+        with open(filepath, "w") as f:
+            json.dump({"layers" : layers_states}, f, indent=3)
+            logger.info(f"Saved Neural Network Parameters to {filepath}")
+
+    @staticmethod
+    def _load_params(filepath):
+        with open(filepath, "r") as f:
+            params = json.load(f)
+        layers_states = params["layers"]
+        #reconstruct layers
+        layers_built = [Layer.load_state_dict(l_state) for l_state in layers_states]
+        logger.info(f"Sucessfully loaded parameters from {filepath}")
+        return layers_built
+
+    def load_params(self, filepath):
+        self.layers = self._load_params(filepath)
+
+    @classmethod
+    def build_from_parameters_file(cls, filepath):
+        layers = FeedForwardNN._load_params(filepath)
+        return cls(layers)
+
     def _generate_batches(
         self,
         X: List[List[float]],
@@ -325,90 +381,3 @@ class FeedForwardNN():
             self.train_metric_history.append(0.0)
             self.val_metric_history.append(val_metric)
 
-
-
-
-            
-
-
-
-        
-
-
-
-# Now implement a 2-layer network with softmax output to classify 3 classes
-
-if __name__ == "__main__":
-    random.seed(0)
-    # 1) Generate synthetic 2D data for binary classes (0 vs 1)
-    xs: List[List[float]] = []
-    ys: List[int] = []
-    num_samples = 100
-    for _ in range(num_samples):
-        # class 0: centered at (-2, -2)
-        xs.append([random.gauss(-1.0, 1.0), random.gauss(-2, 1.0)])
-        ys.append(0)
-        # class 1: centered at (2, 2)
-        xs.append([random.gauss(2, 1.0), random.gauss(2, 1.0)])
-        ys.append(1)
-
-    # 2) Build network: 2 inputs → 4 hidden (tanh) → 1 output (sigmoid)
-    hidden = Layer(
-        n_input=2,
-        n_output=3,
-        activation=Activation.RELU,
-        initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
-    )
-    output_layer = Layer(
-        n_input=3,
-        n_output=1,
-        activation=Activation.SIGMOID,
-        initializer=WeightInitializer(option=WeightInitializationOption.NORMAL)
-    )
-
-    # Collect parameters and setup optimizer
-    params = hidden.parameters() + output_layer.parameters()
-    opt = StochasticGradientDescent(parameters=params, lr=0.02)
-
-    model = FeedForwardNN(layers=[hidden, output_layer])
-
-    model.fit(X_train=xs,
-              y_train=ys,
-              optimizer=opt,
-              loss=binary_crossentropy_loss,
-              epochs=100,
-              batch_size=8)
-
-    # # 3) Training loop with binary cross-entropy loss over the batch
-    # epochs = 1000
-    # for epoch in range(epochs):
-    #     opt.zero_grad()
-
-    #     # Forward pass: collect predictions
-    #     preds: List[Value] = []
-    #     for x_raw in xs:
-    #         x_vals = [Value(x_raw[0]), Value(x_raw[1])]
-    #         h = hidden(x_vals)
-    #         pred = output_layer(h)[0]
-    #         preds.append(pred)
-
-    #     # Compute batch loss (mean over samples)
-    #     loss = binary_crossentropy_loss(preds, ys)
-
-    #     # Backward and update
-    #     loss.backward()
-    #     opt.step()
-
-    #     if epoch % 10 == 0:
-    #         print(f"Epoch {epoch:3d} | Loss = {loss.val:.4f}")
-
-    # 4) Evaluate accuracy
-    correct = 0
-    for x_raw, y_true in zip(xs, ys):
-        x_vals = [Value(x_raw[0]), Value(x_raw[1])]
-        pred_val = output_layer(hidden(x_vals))[0].val
-        label = 1 if pred_val > 0.5 else 0
-        if label == y_true:
-            correct += 1
-    accuracy = correct / len(xs)
-    print(f"Training accuracy: {accuracy:.2f}")

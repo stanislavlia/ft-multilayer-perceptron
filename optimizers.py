@@ -28,8 +28,6 @@ class StochasticGradientDescent(Optimizer):
             self.parameters[i].val -= self.lr * self.parameters[i].grad
 
         
-
-
 class RMSProp(Optimizer):
     pass
 

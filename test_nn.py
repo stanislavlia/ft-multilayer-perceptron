@@ -30,14 +30,15 @@ if __name__ == "__main__":
     init = WeightInitializer(option=WeightInitializationOption.NORMAL)
 
     model = FeedForwardNN(layers=[
-        Layer(n_input=2, n_output=10, activation=Activation.RELU, initializer=init),
-        Layer(n_input=10, n_output=6, activation=Activation.RELU, initializer=init),
-        Layer(n_input=6, n_output=1, activation=Activation.SIGMOID, initializer=init),
+        Layer(n_input=2, n_output=30, activation=Activation.RELU, initializer=init),
+        Layer(n_input=30, n_output=6, activation=Activation.RELU, initializer=init),
+        Layer(n_input=6, n_output=3, activation=Activation.RELU, initializer=init),
+        Layer(n_input=3, n_output=1, activation=Activation.SIGMOID, initializer=init),
     ])
 
     # 4) Setup optimizer and loss
     params = model.parameters()
-    optimizer = StochasticGradientDescent(parameters=params, lr=0.001)
+    optimizer = StochasticGradientDescent(parameters=params, lr=0.01)
     loss_fn = binary_crossentropy_loss
 
     # 5) Train
@@ -46,22 +47,27 @@ if __name__ == "__main__":
         y_train=y_train,
         optimizer=optimizer,
         loss=loss_fn,
-        epochs=300,
-        batch_size=64,
-        metric="f1_score",
+        epochs=20,
+        batch_size=32,
+        metric="accuracy",
         X_val=X_val,
         y_val=y_val
     )
+
+    model.save_params("./tuned_model.json")
+
+
+    loaded_model = model.build_from_parameters_file("./tuned_model.json")
 
     # 6) Evaluate on validation set using model.forward()
     correct = 0
     for x_raw, y_true in zip(X_val, y_val):
         # forward takes raw floats, returns List[Value] for this sample
-        preds: List[Value] = model.forward(x_raw)
+        preds: List[Value] = loaded_model.forward(x_raw)
         pred_val = preds[0].val         # single-output neuron
         label = 1 if pred_val > 0.5 else 0
         if label == y_true:
             correct += 1
 
     acc = correct / len(X_val)
-    logger.info(f"Validation accuracy: {acc:.3f}")
+    logger.info(f"Validation accuracy on loaded model: {acc:.3f}")
