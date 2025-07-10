@@ -1,7 +1,7 @@
 from autograd import Value
 from typing import List, Optional
 
-
+#Losses
 def binary_crossentropy_loss(y_pred_probs : List[Value], y_true: List[int]) -> Value:
     assert len(y_pred_probs) == len(y_true)
     n = len(y_true)
@@ -25,6 +25,7 @@ def mean_squared_error_loss(y_pred: List[Value], y_true: List[float]) -> Value:
         loss += diff * diff
     return loss / n
 
+#Metrics
 
 def accuracy_score(y_pred_probs: List[Value], y_true: List[int], threshold: float = 0.5) -> float:
     """

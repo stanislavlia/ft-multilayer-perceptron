@@ -28,7 +28,7 @@ class StochasticGradientDescent(Optimizer):
             #gradient descent
             self.parameters[i].val -= self.lr * self.parameters[i].grad
 
-
+#BONUS
 class RMSProp(Optimizer):
     def __init__(self, parameters, lr = 0.001, beta=0.9):
         super().__init__(parameters)
@@ -53,6 +53,6 @@ class RMSProp(Optimizer):
             self.parameters[i].val -= self.lr * self.parameters[i].grad / math.sqrt(self.decaying_squared_grad[i] + self.eps)
             
             
-
+#BONUS
 class Adam(Optimizer):
     pass

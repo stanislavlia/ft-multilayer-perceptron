@@ -32,7 +32,7 @@ def split_data(input_csv: str,
             random_state=random_state,
             shuffle=True
         )
-        click.echo(f"Split into {len(train_df)} train and {len(val_df)} validation rows.")
+        click.echo(f"Split into {train_df.shape} train and {val_df.shape} validation rows.")
 
         # Write out to current directory
         train_df.to_csv(train_file, index=False)
