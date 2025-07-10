@@ -2,10 +2,12 @@ from autograd import Value
 from typing import List, Optional, Tuple
 import random
 from enum import Enum
+import matplotlib.pyplot as plt
 from optimizers import StochasticGradientDescent, Optimizer, RMSProp
 from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
 from loguru import logger
 import json
+import os
 
 class WeightInitializationOption(Enum):
     ZEROS = "zeros"
@@ -32,7 +34,7 @@ class WeightInitializer():
         if self.option == WeightInitializationOption.NORMAL:
             return Value(random.normalvariate(mu=0, sigma=0.1))
         if self.option == WeightInitializationOption.UNIFORM:
-            return Value(random.uniform(a=0, b=1))
+            return Value(random.uniform(a=-0.2, b=0.2))
         else:
             raise NotImplementedError(f"option: {self.option} is not supported")
 
@@ -313,6 +315,44 @@ class FeedForwardNN():
         loss = self.loss_func(flat_preds, y_val)
         return loss, metric
     
+    def plot_learning_history(self,
+                              figsize: Tuple[int,int] = (8,6),
+                              output_dir: Optional[str] = None):
+        """
+        Save training & validation loss and metric curves over epochs as PNG files.
+
+        Parameters:
+        -----------
+        figsize    : size of each figure (width, height)
+        output_dir : directory to save the plots (uses current directory if None)
+        """
+        # Prepare output directory
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        save_path = lambda fname: os.path.join(output_dir, fname) if output_dir else fname
+
+        # --- Loss curve ---
+        fig1, ax1 = plt.subplots(figsize=figsize)
+        ax1.plot(self.train_loss_history, label="Train Loss")
+        ax1.plot(self.val_loss_history,   label="Val   Loss")
+        ax1.set_xlabel("Epoch")
+        ax1.set_ylabel("Loss")
+        ax1.set_title("Loss over Epochs")
+        ax1.legend()
+        fig1.savefig(save_path("loss_history.png"))
+        plt.close(fig1)
+
+        # --- Metric curve ---
+        fig2, ax2 = plt.subplots(figsize=figsize)
+        ax2.plot(self.train_metric_history, label=f"Train {self.metric.capitalize()}")
+        ax2.plot(self.val_metric_history,   label=f"Val   {self.metric.capitalize()}")
+        ax2.set_xlabel("Epoch")
+        ax2.set_ylabel(self.metric.capitalize())
+        ax2.set_title(f"{self.metric.capitalize()} over Epochs")
+        ax2.legend()
+        fig2.savefig(save_path(f"{self.metric}_history.png"))
+        plt.close(fig2)
+    
     def fit(
         self,
         X_train: List[List[float]],
@@ -378,6 +418,6 @@ class FeedForwardNN():
             )
             self.train_loss_history.append(avg_train_loss)
             self.val_loss_history.append(val_loss.val)
-            self.train_metric_history.append(0.0)
+            self.train_metric_history.append(train_metric)
             self.val_metric_history.append(val_metric)
 

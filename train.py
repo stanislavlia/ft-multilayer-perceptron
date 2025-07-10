@@ -55,7 +55,7 @@ def training_program(
     # SET UP NEURAL NETWORK ARCHITECTURE
     # you can build neural network from layers like Lego blocks
 
-    initializer = WeightInitializer(option=WeightInitializationOption.NORMAL)
+    initializer = WeightInitializer(option=WeightInitializationOption.UNIFORM)
 
     model = FeedForwardNN(
         layers=[
@@ -76,8 +76,8 @@ def training_program(
 
     params = model.parameters()
     
-    optimizer = StochasticGradientDescent(params, lr=0.002)
-    #optimizer = RMSProp(parameters=params, lr=0.002, beta=0.9) #Use More Advanced Optimizer
+    #optimizer = StochasticGradientDescent(params, lr=lr)
+    optimizer = RMSProp(parameters=params, lr=lr, beta=0.9) #Use More Advanced Optimizer
 
     loss_fn = binary_crossentropy_loss
 
@@ -93,6 +93,7 @@ def training_program(
         y_val=y_val
     )
 
+    model.plot_learning_history()
 
     
 
