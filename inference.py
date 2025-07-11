@@ -34,8 +34,8 @@ def inference_program(
     X_val = val_df.drop(target_idx, axis=1).values
     #encode to binary
     target_encoder = lambda target: 0 if target == "B" else 1  # Benign(Good) - 0, Malignant(Bad) - 1
-    reverse_target_encoder = lambda target: "B" if 0 else "M"
-    y_val = val_df[1].apply(target_encoder).to_list()
+    reverse_target_encoder = lambda target: "B" if target == 0 else "M"
+    y_val = val_df[target_idx].apply(target_encoder).to_list()
 
     X_val_scaled = X_val
     if scale and scaler_path:
@@ -71,6 +71,19 @@ def inference_program(
     print()
     print('===============EVALUATION==============')
     print(f"Validation Metric {metric.upper()} = {metric_value}")
+
+    if predictions_file:
+        flat_preds_vals = [float(p) for p in flat_preds]
+        flat_preds_label = [1 if p >= 0.5 else 0 for p in flat_preds_vals]
+        flat_preds_label = [reverse_target_encoder(p) for p in flat_preds_label]
+        
+        predictions_df = pd.DataFrame({
+                        "true_label": val_df[target_idx].values,
+                        "predicted_label": flat_preds_label,
+                        "malignant_probability": flat_preds_vals
+                    })
+        predictions_df.to_csv(predictions_file, index=False)
+        print(f"Predictions saved to ", predictions_file)
 
 
 if __name__ == "__main__":

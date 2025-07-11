@@ -125,6 +125,9 @@ class Value:
         
         
         return out
+    
+    def __float__(self):
+        return float(self.val)
         
     
     
