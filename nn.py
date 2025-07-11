@@ -8,6 +8,7 @@ from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score,
 from loguru import logger
 import json
 import os
+from tqdm import tqdm
 
 class WeightInitializationOption(Enum):
     ZEROS = "zeros"
@@ -381,21 +382,24 @@ class FeedForwardNN():
             y_train_preds = []
             y_train_true = []
 
-            for X_batch, y_batch in self._generate_batches(X_train, y_train):
-                self.optimizer.zero_grad()
+            batch_iter = self._generate_batches(X_train, y_train)
+            batch_iter = tqdm(batch_iter, desc=f"Epoch {epoch}/{epochs}", leave=False)
 
+            for i, (X_batch, y_batch) in enumerate(batch_iter):
+                self.optimizer.zero_grad()
                 batch_out = self.forward_batch(X_batch)
                 flat_preds = [out[0] for out in batch_out]
 
                 y_train_preds.extend(flat_preds)
                 y_train_true.extend(y_batch)
 
-                # compute loss, backprop, step
                 batch_loss = loss(flat_preds, y_batch)
                 batch_loss.backward()
                 self.optimizer.step()
 
                 epoch_loss += batch_loss.val
+                avg_loss = epoch_loss / (i + 1) #running loss
+                batch_iter.set_postfix(loss=f"{avg_loss:.4f}")
 
             # average train loss over batches
             num_batches = len(X_train) / batch_size
