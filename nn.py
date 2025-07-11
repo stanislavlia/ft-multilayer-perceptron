@@ -310,7 +310,7 @@ class FeedForwardNN():
 
     def validation_eval(self, X_val, y_val) -> Tuple:
         y_pred = self.forward_batch(X_val)
-        flat_preds = [out[0] for out in y_pred]
+        flat_preds = [out[-1] for out in y_pred] #take prob for Y=1, works only for Binary classification
 
         metric = self._metric(flat_preds, y_val)
         loss = self.loss_func(flat_preds, y_val)
@@ -388,8 +388,9 @@ class FeedForwardNN():
             for i, (X_batch, y_batch) in enumerate(batch_iter):
                 self.optimizer.zero_grad()
                 batch_out = self.forward_batch(X_batch)
-                flat_preds = [out[0] for out in batch_out]
+                flat_preds = [out[-1] for out in batch_out] #take prob for Y=1, works only for Binary classification
 
+            
                 y_train_preds.extend(flat_preds)
                 y_train_true.extend(y_batch)
 

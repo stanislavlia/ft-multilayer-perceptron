@@ -1,6 +1,3 @@
-import random
-from autograd import Value
-from typing import List
 from loguru import logger
 import pandas as pd
 from optimizers import StochasticGradientDescent, RMSProp, Adam
@@ -8,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from metrics import binary_crossentropy_loss
 from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
 import click
-
+import joblib
 
 
 @click.command()
@@ -27,6 +24,10 @@ import click
 @click.option('--model-path', default="trained_model_params.json", show_default=True, help="Path to save trained model")
 @click.option('--opt', type=click.Choice(['sgd', 'rmsprop', 'adam'], case_sensitive=False),
               default='rmsprop', show_default=True, help='Optimizer to use: sgd, rmsprop, or adam')
+@click.option('--scale/--no-scale', default=True, show_default=True,
+              help='Scale features using StandardScaler or not.')
+@click.option('--scaler-path', default=None,
+              help='Optional path to save fitted scaler (only used if --scale is True)')
 def training_program(
     train_file: str,
     val_file: str,
@@ -35,7 +36,9 @@ def training_program(
     batch_size: int,
     epochs: int,
     model_path: str,
-    opt: str
+    opt: str,
+    scale : bool,
+    scaler_path: str
 ):
     
 
@@ -52,10 +55,17 @@ def training_program(
     X_val = val_df.drop(target_idx, axis=1).values
 
 
-    #Transform features (Scale) for better convergence
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train).tolist()
-    X_val_scaled = scaler.fit_transform(X_val).tolist()
+    #Transform features (Scale) for better convergence if scale=true
+    if scale:
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train).tolist()
+        X_val_scaled = scaler.transform(X_val).tolist()
+        if scaler_path:
+            joblib.dump(scaler, scaler_path)
+            logger.info(f"Scaler saved to {scaler_path}")
+    else:
+        X_train_scaled = X_train.tolist()
+        X_val_scaled = X_val.tolist()
 
 
     n_features = len(X_train[0])
@@ -81,8 +91,8 @@ def training_program(
                 activation=Activation.RELU,
                 initializer=initializer),
             Layer(n_input=5,
-                n_output=1,
-                activation=Activation.SIGMOID, #probability output
+                n_output=2,
+                activation=Activation.SOFTMAX, #probability output: e.g [0.72, 0.28]
                 initializer=initializer)
             ]
     )
