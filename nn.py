@@ -8,6 +8,7 @@ from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score,
 from loguru import logger
 import json
 import os
+import math
 from tqdm import tqdm
 
 class WeightInitializationOption(Enum):
@@ -40,6 +41,19 @@ class WeightInitializer():
         else:
             raise NotImplementedError(f"option: {self.option} is not supported")
 
+
+def xavier_std(n_in, n_out):
+    """
+    Compute the standard deviation for Xavier (Glorot) normal initialization.
+
+    Parameters:
+    - n_in (int): Number of input units (fan-in)
+    - n_out (int): Number of output units (fan-out)
+
+    Returns:
+    - float: Standard deviation for normal distribution
+    """
+    return math.sqrt(2.0 / (n_in + n_out))
 
 
 class Neuron():

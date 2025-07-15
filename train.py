@@ -3,7 +3,7 @@ import pandas as pd
 from optimizers import StochasticGradientDescent, RMSProp
 from sklearn.preprocessing import StandardScaler
 from metrics import binary_crossentropy_loss
-from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
+from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN, xavier_std
 import click
 import joblib
 
@@ -78,27 +78,27 @@ def training_program(
 
     # SET UP NEURAL NETWORK ARCHITECTURE
     # you can build neural network from layers like Lego blocks
-    initializer = WeightInitializer(option=WeightInitializationOption.NORMAL)
+
 
     model = FeedForwardNN(
         layers=[
             Layer(n_input=n_features, #must match with input dimension
                 n_output=8,
                 activation=Activation.RELU,
-                initializer=initializer),
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(n_features, 8))),
             Layer(n_input=8,
                 n_output=6,
                 activation=Activation.TANH,
-                initializer=initializer),def compute_std_
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(8, 6))),
 
             Layer(n_input=6,
                 n_output=4,
                 activation=Activation.TANH,
-                initializer=initializer),
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(6, 4))),
             Layer(n_input=4,
                 n_output=2,
                 activation=Activation.SOFTMAX, #probability output: e.g [0.72, 0.28]
-                initializer=initializer)
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(4, 2)))
             ]
     )
 
@@ -123,7 +123,8 @@ def training_program(
         batch_size=batch_size,
         metric="accuracy",
         X_val=X_val_scaled,
-        y_val=y_val
+        y_val=y_val,
+        display_each_n_step=1
     )
     model.save_params(model_path)
     model.plot_learning_history()
