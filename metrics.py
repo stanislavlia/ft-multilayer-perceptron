@@ -19,11 +19,10 @@ def mean_squared_error_loss(y_pred: List[Value], y_true: List[float]) -> Value:
     """
     assert len(y_pred) == len(y_true), "Lengths of predictions and targets must match"
     n = len(y_true)
-    loss = Value(0.0)
-    for yp, yt in zip(y_pred, y_true):
-        diff = yp - yt
-        loss += diff * diff
-    return loss / n
+    
+    loss = sum([(y_p - yt_i)**2  for yt_i, y_p in zip(y_true, y_pred)]) / n
+
+    return loss
 
 #Metrics
 

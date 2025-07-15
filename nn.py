@@ -24,8 +24,9 @@ class Activation(Enum):
 
 
 class WeightInitializer():
-    def __init__(self, option=WeightInitializationOption.ZEROS):
+    def __init__(self, option=WeightInitializationOption.ZEROS, sd: float = 0.2):
         self.option = option
+        self.sd = sd
 
     def __call__(self) -> float:
         """Returns initialized value for weight"""
@@ -33,7 +34,7 @@ class WeightInitializer():
         if self.option == WeightInitializationOption.ZEROS:
             return Value(0.0)
         if self.option == WeightInitializationOption.NORMAL:
-            return Value(random.normalvariate(mu=0, sigma=0.1))
+            return Value(random.normalvariate(mu=0, sigma=self.sd))
         if self.option == WeightInitializationOption.UNIFORM:
             return Value(random.uniform(a=-0.2, b=0.2))
         else:
@@ -141,6 +142,8 @@ class Layer():
         for p_obj, v in zip(params, saved):
             p_obj.val = v
         return layer
+    
+
     
 
 class FeedForwardNN():
@@ -364,7 +367,8 @@ class FeedForwardNN():
         batch_size: int = 16,
         metric: str = "accuracy",
         X_val: List[List[float]] = None,
-        y_val: List[float] = None
+        y_val: List[float] = None,
+        display_each_n_step: int = 10
     ):
         # Store hyperparams & data
         self.optimizer = optimizer
@@ -378,7 +382,6 @@ class FeedForwardNN():
         self._validate_data(X_train, y_train, X_val, y_val)
 
         for epoch in range(1, epochs + 1):
-            epoch_loss = 0.0
             y_train_preds = []
             y_train_true = []
 
@@ -388,8 +391,7 @@ class FeedForwardNN():
             for i, (X_batch, y_batch) in enumerate(batch_iter):
                 self.optimizer.zero_grad()
                 batch_out = self.forward_batch(X_batch)
-                flat_preds = [out[-1] for out in batch_out] #take prob for Y=1, works only for Binary classification
-
+                flat_preds = [out[-1] if isinstance(out, list) else out.val for out in batch_out]
             
                 y_train_preds.extend(flat_preds)
                 y_train_true.extend(y_batch)
@@ -398,13 +400,8 @@ class FeedForwardNN():
                 batch_loss.backward()
                 self.optimizer.step()
 
-                epoch_loss += batch_loss.val
-                avg_loss = epoch_loss / (i + 1) #running loss
-                batch_iter.set_postfix(loss=f"{avg_loss:.4f}")
-
-            # average train loss over batches
-            num_batches = len(X_train) / batch_size
-            avg_train_loss = epoch_loss / num_batches
+            # train loss for epoch
+            epoch_loss = loss(y_train_preds, y_train_true)
 
             train_metric = self._metric(y_train_preds, y_train_true)
 
@@ -413,16 +410,16 @@ class FeedForwardNN():
                 val_loss, val_metric = self.validation_eval(X_val, y_val)
             else:
                 val_loss, val_metric = None, None
-
-            logger.info(
-                f"Epoch {epoch}/{epochs}  "
-                f"train_loss={avg_train_loss:.4f}  "
-                f"{self.metric}: {train_metric}    "
-                f"val_loss={val_loss.val:.4f}  "
-                f"val_{self.metric}={val_metric:.4f}"
-            )
-            self.train_loss_history.append(avg_train_loss)
-            self.val_loss_history.append(val_loss.val)
-            self.train_metric_history.append(train_metric)
-            self.val_metric_history.append(val_metric)
+            if (epoch % display_each_n_step) == 0 or epoch == 1:
+                logger.info(
+                    f"Epoch {epoch}/{epochs}  "
+                    f"train_loss={float(epoch_loss):.4f}  "
+                    f"{self.metric}: {float(train_metric)}    "
+                    f"val_loss={float(val_loss):.4f}  "
+                    f"val_{self.metric}={float(val_metric):.4f}"
+                )
+            self.train_loss_history.append(float(epoch_loss))
+            self.val_loss_history.append(float(val_loss))
+            self.train_metric_history.append(float(train_metric))
+            self.val_metric_history.append(float(val_metric))
 

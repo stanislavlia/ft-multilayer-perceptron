@@ -53,6 +53,3 @@ class RMSProp(Optimizer):
             self.parameters[i].val -= self.lr * self.parameters[i].grad / math.sqrt(self.decaying_squared_grad[i] + self.eps)
             
             
-#BONUS
-class Adam(Optimizer):
-    pass

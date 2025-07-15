@@ -1,6 +1,6 @@
 from loguru import logger
 import pandas as pd
-from optimizers import StochasticGradientDescent, RMSProp, Adam
+from optimizers import StochasticGradientDescent, RMSProp
 from sklearn.preprocessing import StandardScaler
 from metrics import binary_crossentropy_loss
 from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
@@ -22,8 +22,8 @@ import joblib
 @click.option('--epochs', default=20, show_default=True,
               help='Number of training epochs')
 @click.option('--model-path', default="trained_model_params.json", show_default=True, help="Path to save trained model")
-@click.option('--opt', type=click.Choice(['sgd', 'rmsprop', 'adam'], case_sensitive=False),
-              default='rmsprop', show_default=True, help='Optimizer to use: sgd, rmsprop, or adam')
+@click.option('--opt', type=click.Choice(['sgd', 'rmsprop'], case_sensitive=False),
+              default='rmsprop', show_default=True, help='Optimizer to use: sgd, rmsprop')
 @click.option('--scale/--no-scale', default=True, show_default=True,
               help='Scale features using StandardScaler or not.')
 @click.option('--scaler-path', default=None,
@@ -78,19 +78,24 @@ def training_program(
 
     # SET UP NEURAL NETWORK ARCHITECTURE
     # you can build neural network from layers like Lego blocks
-    initializer = WeightInitializer(option=WeightInitializationOption.UNIFORM)
+    initializer = WeightInitializer(option=WeightInitializationOption.NORMAL)
 
     model = FeedForwardNN(
         layers=[
             Layer(n_input=n_features, #must match with input dimension
-                n_output=10,
+                n_output=8,
                 activation=Activation.RELU,
                 initializer=initializer),
-            Layer(n_input=10,
-                n_output=5,
-                activation=Activation.RELU,
+            Layer(n_input=8,
+                n_output=6,
+                activation=Activation.TANH,
+                initializer=initializer),def compute_std_
+
+            Layer(n_input=6,
+                n_output=4,
+                activation=Activation.TANH,
                 initializer=initializer),
-            Layer(n_input=5,
+            Layer(n_input=4,
                 n_output=2,
                 activation=Activation.SOFTMAX, #probability output: e.g [0.72, 0.28]
                 initializer=initializer)
@@ -104,8 +109,6 @@ def training_program(
     optimizer = None
     if opt == "rmsprop":
         optimizer = RMSProp(parameters=params, lr=lr, beta=0.9)
-    elif opt == "adam":
-        optimizer = Adam(params)
     else:
         optimizer = StochasticGradientDescent(params, lr=lr)
 
