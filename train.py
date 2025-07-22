@@ -1,11 +1,17 @@
 from loguru import logger
 import pandas as pd
-from optimizers import StochasticGradientDescent, RMSProp
+from optimizers import StochasticGradientDescent, RMSProp, Adam
 from sklearn.preprocessing import StandardScaler
-from metrics import binary_crossentropy_loss
+from metrics import categorical_crossentropy_loss
 from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN, xavier_std
 import click
 import joblib
+
+
+#GLOBAL VARS: Encoding for Y
+#encode to binary
+target_encoder = lambda target: [1, 0] if target == "B" else [0, 1]  # Benign(Good) - 0, Malignant(Bad) - 1
+reverse_target_encoder = lambda target: "B" if target == [1, 0] else "M"
 
 
 @click.command()
@@ -22,7 +28,7 @@ import joblib
 @click.option('--epochs', default=20, show_default=True,
               help='Number of training epochs')
 @click.option('--model-path', default="trained_model_params.json", show_default=True, help="Path to save trained model")
-@click.option('--opt', type=click.Choice(['sgd', 'rmsprop'], case_sensitive=False),
+@click.option('--opt', type=click.Choice(['sgd', 'rmsprop', "adam"], case_sensitive=False),
               default='rmsprop', show_default=True, help='Optimizer to use: sgd, rmsprop')
 @click.option('--scale/--no-scale', default=True, show_default=True,
               help='Scale features using StandardScaler or not.')
@@ -71,59 +77,55 @@ def training_program(
     n_features = len(X_train[0])
 
     #targets
-    #encode to binary
-    target_encoder = lambda target: 0 if target == "B" else 1  # Benign(Good) - 0, Malignant(Bad) - 1
-    y_train = train_df[1].apply(target_encoder).to_list()
-    y_val = val_df[1].apply(target_encoder).to_list()
+    # One-hot encode targets. This works for binary and multi-class cases.
+    num_classes = len(train_df[1].unique())
+    n_features = len(X_train[0])
+
+    #targets    
+    y_train = train_df[1].apply(target_encoder).tolist()
+    y_val = val_df[1].apply(target_encoder).tolist()
+
 
     # SET UP NEURAL NETWORK ARCHITECTURE
     # you can build neural network from layers like Lego blocks
-
-
     model = FeedForwardNN(
         layers=[
             Layer(n_input=n_features, #must match with input dimension
                 n_output=8,
                 activation=Activation.RELU,
-                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(n_features, 8))),
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(n_features, 16))),
             Layer(n_input=8,
-                n_output=6,
-                activation=Activation.TANH,
-                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(8, 6))),
-
-            Layer(n_input=6,
                 n_output=4,
-                activation=Activation.TANH,
-                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(6, 4))),
+                activation=Activation.RELU,
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(16, 16))),
             Layer(n_input=4,
-                n_output=2,
-                activation=Activation.SOFTMAX, #probability output: e.g [0.72, 0.28]
-                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(4, 2)))
+                n_output=num_classes, # Output layer must match the number of classes
+                activation=Activation.SOFTMAX, # Softmax for multi-class probability output
+                initializer=WeightInitializer(option=WeightInitializationOption.NORMAL, sd=xavier_std(16, num_classes)))
             ]
     )
 
     params = model.parameters()
+    logger.info(f"Model created successfully | number of params: {len(params)}")
 
-    logger.info(f"Start training | number of parameters: {len(params)} | optimizer {opt}; learning rate={lr}")
-    
-    optimizer = None
+    #OPTIMIZER
     if opt == "rmsprop":
         optimizer = RMSProp(parameters=params, lr=lr, beta=0.9)
+    elif opt == "adam":
+        optimizer = Adam(parameters=params, lr=lr)
     else:
-        optimizer = StochasticGradientDescent(params, lr=lr)
-
-    loss_fn = binary_crossentropy_loss
+        optimizer = StochasticGradientDescent(parameters=params, lr=lr)
 
     model.fit(
         X_train=X_train_scaled,
         y_train=y_train,
+        X_val=X_val_scaled,
+        y_val=y_val,
         optimizer=optimizer,
-        loss=loss_fn,
+        loss=categorical_crossentropy_loss, # Use categorical cross-entropy for classification
         epochs=epochs,
         batch_size=batch_size,
         metric="accuracy",
-        X_val=X_val_scaled,
-        y_val=y_val,
         display_each_n_step=1
     )
     model.save_params(model_path)

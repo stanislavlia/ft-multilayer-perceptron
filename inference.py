@@ -1,24 +1,26 @@
 from loguru import logger
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from metrics import binary_crossentropy_loss, accuracy_score, f1_score
-from nn import Layer, WeightInitializer, WeightInitializationOption, Activation, FeedForwardNN
+from metrics import accuracy_score, f1_score
+from nn import FeedForwardNN
+from train import target_encoder, reverse_target_encoder
 import click
 import joblib
-import math
 
 @click.command()
-@click.option('--model-path', default="trained_model_params.json", show_default=True, help="Path to save trained model")
+@click.option('--model-path', default="trained_model_params.json", show_default=True, help="Path to trained model parameters")
 @click.option('--val-file', default="val.csv", show_default=True,
-              help='Filename for the validation set (written in current directory).')
+              help='Filename for the validation set.')
 @click.option('--target-idx', default=1, show_default=True,
-              help='Index for target columns')
+              help='Index for the target column in the CSV file.')
 @click.option('--scale/--no-scale', default=True, show_default=True,
-              help='Scale features using StandardScaler or not.')
-@click.option('--scaler-path', default=None,
-              help='Optional path to save fitted scaler (only used if --scale is True)')
-@click.option('--predictions-file', default=None)
-@click.option('--metric', type=click.Choice(['accuracy', 'bce', 'f1'], case_sensitive=False)) #CLASSIFICATIONS ONLY METRIC
+              help='Scale features using a saved StandardScaler.')
+@click.option('--scaler-path', default="scaler.joblib",
+              help='Path to the saved scaler object.')
+@click.option('--predictions-file', default="predictions.csv", show_default=True,
+              help="File to save the model's predictions.")
+@click.option('--metric', type=click.Choice(['accuracy', 'f1'], case_sensitive=False),
+              help="Metric to evaluate the model's performance.")
 def inference_program(
     model_path,
     val_file,
@@ -28,63 +30,56 @@ def inference_program(
     predictions_file,
     metric
 ):
-    #PROCESS VALIDATION DATA
+    # PROCESS VALIDATION DATA
     val_df = pd.read_csv(val_file, header=None)
-    val_df.drop(0, axis=1, inplace=True) #Drop ID
+    val_df.drop(0, axis=1, inplace=True) # Drop ID column
     X_val = val_df.drop(target_idx, axis=1).values
-    #encode to binary
-    target_encoder = lambda target: 0 if target == "B" else 1  # Benign(Good) - 0, Malignant(Bad) - 1
-    reverse_target_encoder = lambda target: "B" if target == 0 else "M"
-    y_val = val_df[target_idx].apply(target_encoder).to_list()
-
+    
+    # Use the imported encoder to create one-hot encoded labels
+    y_val_one_hot = val_df[target_idx].apply(target_encoder).tolist()
+    
     X_val_scaled = X_val
     if scale and scaler_path:
-        scaler: StandardScaler = joblib.load(scaler_path)
-        logger.info(f"Scaler: {scaler} loaded...")
-        X_val_scaled = scaler.transform(X_val) #apply standardization
+        try:
+            scaler: StandardScaler = joblib.load(scaler_path)
+            logger.info(f"Scaler loaded from {scaler_path}")
+            X_val_scaled = scaler.transform(X_val)
+        except FileNotFoundError:
+            logger.error(f"Scaler file not found at {scaler_path}. Proceeding without scaling.")
     
     X_val_scaled = X_val_scaled.tolist()
 
-    #LOAD TRAINED MODEL
+    # LOAD TRAINED MODEL
     model = FeedForwardNN.build_from_parameters_file(model_path)
     logger.info(f"Model loaded successfully | number of params: {len(model.parameters())}")
 
-    val_predictions = model.forward_batch(X_val_scaled)
-    
-    print("===========FIRST 20 PREDICTIONS=========")
-    for i, vp in enumerate(val_predictions[:20]):
-        print(f"Prediction: {[vp[0].val, vp[1].val]}  | True = {y_val[i]}")
-    
-    metric_func = None
-    if metric == "bce":
-        metric_func = binary_crossentropy_loss
-    elif metric == "f1":
-        metric_func = f1_score
-    else:
-        metric_func = accuracy_score
+    # GET PREDICTIONS
+    val_predictions_values = model.forward_batch(X_val_scaled)
+    val_predictions_floats = [[v.val for v in p] for p in val_predictions_values]
 
-    flat_preds = [out[-1] for out in val_predictions] #take prob for Y=1
+    # EVALUATE METRIC
+    if metric:
+        metric_func = accuracy_score if metric == 'accuracy' else f1_score
+        metric_value = metric_func(val_predictions_floats, y_val_one_hot)
+        logger.info(f"Validation Metric {metric.upper()} = {metric_value:.4f}")
 
-    metric_value = metric_func(flat_preds, y_val)
-
-    print()
-    print()
-    print('===============EVALUATION==============')
-    print(f"Validation Metric {metric.upper()} = {metric_value}")
-
+    # SAVE PREDICTIONS
     if predictions_file:
-        flat_preds_vals = [float(p) for p in flat_preds]
-        flat_preds_label = [1 if p >= 0.5 else 0 for p in flat_preds_vals]
-        flat_preds_label = [reverse_target_encoder(p) for p in flat_preds_label]
+        # Decode one-hot predictions to class labels ('B' or 'M')
+        predicted_indices = [p.index(max(p)) for p in val_predictions_floats]
+        
+        # Create a reverse map from index to label
+        class_names = ['B', 'M'] # Assuming 'B' is index 0 from [1,0] and 'M' is index 1 from [0,1]
+        predicted_labels = [class_names[i] for i in predicted_indices]
         
         predictions_df = pd.DataFrame({
-                        "true_label": val_df[target_idx].values,
-                        "predicted_label": flat_preds_label,
-                        "malignant_probability": flat_preds_vals
-                    })
+            "true_label": val_df[target_idx].values,
+            "predicted_label": predicted_labels,
+            "benign_probability": [p[0] for p in val_predictions_floats],
+            "malignant_probability": [p[1] for p in val_predictions_floats]
+        })
         predictions_df.to_csv(predictions_file, index=False)
-        print(f"Predictions saved to ", predictions_file)
-
+        logger.info(f"Predictions saved to {predictions_file}")
 
 if __name__ == "__main__":
     inference_program()

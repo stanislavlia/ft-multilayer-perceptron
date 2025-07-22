@@ -4,7 +4,7 @@ import random
 from enum import Enum
 import matplotlib.pyplot as plt
 from optimizers import StochasticGradientDescent, Optimizer, RMSProp
-from metrics import binary_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
+from metrics import categorical_crossentropy_loss, mean_squared_error_loss, r2_score, accuracy_score, f1_score
 from loguru import logger
 import json
 import os
@@ -213,15 +213,15 @@ class FeedForwardNN():
     
     def _validate_data(self,
                        X_train: List[List[float]],
-                       y_train: List[float],
+                       y_train: List[List[float]],
                        X_val: Optional[List[List[float]]] = None,
-                       y_val: Optional[List[float]] = None):
+                       y_val: Optional[List[List[float]]] = None):
         
         # Basic type & length checks
         if not isinstance(X_train, list) or not all(isinstance(x, list) for x in X_train):
             raise ValueError("X_train must be a list of feature lists")
-        if not isinstance(y_train, list):
-            raise ValueError("y_train must be a list")
+        if not isinstance(y_train, list) or not all(isinstance(y, list) for y in y_train):
+            raise ValueError("y_train must be a list of label vectors")
         if len(X_train) != len(y_train):
             raise ValueError(f"Train samples ({len(X_train)}) != train labels ({len(y_train)})")
 
@@ -231,6 +231,13 @@ class FeedForwardNN():
             if len(x) != feat_len:
                 raise ValueError(f"All rows in X_train must have same length; "
                                  f"row 0 is {feat_len} but row {i} is {len(x)}")
+        
+        # Check that y-vector length matches final layer output
+        y_len = len(y_train[0])
+        out_len = self.layers[-1].n_output
+        if y_len != out_len:
+            raise ValueError(f"Length of label vectors ({y_len}) must match "
+                             f"output size of the final layer ({out_len})")
 
         #If validation provided, repeat checks
         if X_val is not None or y_val is not None:
@@ -238,20 +245,17 @@ class FeedForwardNN():
                 raise ValueError("If you pass X_val you must also pass y_val (and vice versa)")
             if not isinstance(X_val, list) or not all(isinstance(x, list) for x in X_val):
                 raise ValueError("X_val must be a list of feature lists")
-            if not isinstance(y_val, list):
-                raise ValueError("y_val must be a list")
+            if not isinstance(y_val, list) or not all(isinstance(y, list) for y in y_val):
+                raise ValueError("y_val must be a list of label vectors")
             if len(X_val) != len(y_val):
                 raise ValueError(f"Val samples ({len(X_val)}) != val labels ({len(y_val)})")
             for i, x in enumerate(X_val):
                 if len(x) != feat_len:
                     raise ValueError(f"All rows in X_val must have same length as X_train; "
-                                     f"row {i} is {len(x)} but should be {feat_len}")
-
-        expected = self.layers[0].n_input
-        if feat_len != expected:
-            raise ValueError(f"Each input sample must have {expected} features, "
-                             f"but data has {feat_len}")
-    
+                                     f"row 0 is {feat_len} but row {i} is {len(x)}")
+            if len(y_val[0]) != y_len:
+                raise ValueError("Length of validation label vectors must match training label vectors")
+            
     def save_params(self, filepath):
 
         layers_states = [l.state_dict() for l in self.layers]
@@ -280,7 +284,7 @@ class FeedForwardNN():
     def _generate_batches(
         self,
         X: List[List[float]],
-        y: List[float]
+        y: List[List[float]]
     ):
         """
         Yield successive batches from X and y.
@@ -295,18 +299,23 @@ class FeedForwardNN():
             batch_y = [y[i] for i in batch_idx]
             yield batch_X, batch_y
 
-    def forward(self, x : List[float]) -> Value:
+    def forward(self, x : List[float]) -> List[Value]:
         for layer in self.layers:
             x = layer(x)
         return x
     
-    def forward_batch(self, x: List[List[float]]) -> List[Value]:
-
+    def forward_batch(self, x: List[List[float]]) -> List[List[Value]]:
         y_pred_batch = [self.forward(xi) for xi in x]
         return y_pred_batch
+    
+    def predict(self, x: List[List[Value]]) -> List[float]:
+        """Returns flatten predictions."""
+        pass
 
     def _metric(self, y_pred, y_true) -> float:
-        
+        """Assumes y_pred and y_true are one-hot vectors encoded for Classification. E.g. [[1, 0, 0], [0, 1, 0], [1, 0, 0]]
+           Assumes y_pred and y_true are vectors with 1 component. E.g. [[12.5], [9.2], [0.0]]"""
+
         if self.metric == "accuracy":
             return accuracy_score(y_pred, y_true)
         if self.metric == "f1_score":
@@ -326,11 +335,12 @@ class FeedForwardNN():
         return self.forward_batch(x)
 
     def validation_eval(self, X_val, y_val) -> Tuple:
-        y_pred = self.forward_batch(X_val)
-        flat_preds = [out[-1] for out in y_pred] #take prob for Y=1, works only for Binary classification
+        y_pred_values = self.forward_batch(X_val)
+        # Convert predictions from Value objects to floats for metric calculation
+        y_pred_floats = [[o.val for o in out] for out in y_pred_values]
 
-        metric = self._metric(flat_preds, y_val)
-        loss = self.loss_func(flat_preds, y_val)
+        metric = self._metric(y_pred_floats, y_val)
+        loss = self.loss_func(y_pred_values, y_val)
         return loss, metric
     
     def plot_learning_history(self,
@@ -374,14 +384,14 @@ class FeedForwardNN():
     def fit(
         self,
         X_train: List[List[float]],
-        y_train: List[float],
+        y_train: List[List[float]],
         optimizer: Optimizer,
         loss,
         epochs: int,
         batch_size: int = 16,
         metric: str = "accuracy",
         X_val: List[List[float]] = None,
-        y_val: List[float] = None,
+        y_val: List[List[float]] = None,
         display_each_n_step: int = 10
     ):
         # Store hyperparams & data
@@ -396,27 +406,26 @@ class FeedForwardNN():
         self._validate_data(X_train, y_train, X_val, y_val)
 
         for epoch in range(1, epochs + 1):
-            y_train_preds = []
-            y_train_true = []
+            y_train_preds : List[List[float]] = []
+            y_train_true : List[List[float]] = []
 
             batch_iter = self._generate_batches(X_train, y_train)
             batch_iter = tqdm(batch_iter, desc=f"Epoch {epoch}/{epochs}", leave=False)
 
             for i, (X_batch, y_batch) in enumerate(batch_iter):
                 self.optimizer.zero_grad()
-                batch_out = self.forward_batch(X_batch)
-                flat_preds = [out[-1] if isinstance(out, list) else out.val for out in batch_out]
-            
-                y_train_preds.extend(flat_preds)
-                y_train_true.extend(y_batch)
-
-                batch_loss = loss(flat_preds, y_batch)
+                # Forward pass returns List[List[Value]]
+                batch_out_values = self.forward_batch(X_batch)
+                
+                # Calculate loss with Value objects to track gradients
+                batch_loss = self.loss_func(batch_out_values, y_batch)
                 batch_loss.backward()
+                y_train_preds.extend(batch_out_values)
+                y_train_true.extend(y_batch)
                 self.optimizer.step()
 
             # train loss for epoch
             epoch_loss = loss(y_train_preds, y_train_true)
-
             train_metric = self._metric(y_train_preds, y_train_true)
 
             # validation (if provided)
